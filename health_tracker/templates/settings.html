@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+<div class="page">
+    <header class="page-header">
+        <h1>Settings</h1>
+    </header>
+
+    <!-- Profile -->
+    <div class="card">
+        <h3>Profile</h3>
+        <div id="profileInfo">
+            <p class="muted">Loading...</p>
+        </div>
+        <button class="btn btn-secondary btn-full" onclick="window.location.href='/'">
+            Edit Profile
+        </button>
+    </div>
+
+    <!-- Connected Apps -->
+    <div class="card">
+        <h3>Connected Apps</h3>
+        <div class="connection-list">
+            <div class="connection-item">
+                <div>
+                    <strong>Whoop</strong>
+                    <p id="whoopStatus" class="muted">Not connected</p>
+                </div>
+                <button class="btn btn-sm" onclick="connectWhoop()">Connect</button>
+            </div>
+            <div class="connection-item">
+                <div>
+                    <strong>Apple Health</strong>
+                    <p class="muted">Sync via iOS Shortcut</p>
+                </div>
+                <button class="btn btn-sm" onclick="showAppleHealthInfo()">Setup</button>
+            </div>
+            <div class="connection-item">
+                <div>
+                    <strong>Renpho Scale</strong>
+                    <p id="renphoStatus" class="muted">Not connected</p>
+                </div>
+                <button class="btn btn-sm" onclick="connectRenpho()">Connect</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Renpho Connection Form -->
+    <div id="renphoForm" class="card hidden">
+        <h3>Connect Renpho</h3>
+        <form onsubmit="submitRenpho(event)">
+            <div class="form-group">
+                <label>Renpho Email</label>
+                <input type="email" id="renphoEmail" required>
+            </div>
+            <div class="form-group">
+                <label>Renpho Password</label>
+                <input type="password" id="renphoPass" required>
+            </div>
+            <button type="submit" class="btn btn-primary btn-full">Connect</button>
+        </form>
+    </div>
+
+    <!-- Manual Data Entry -->
+    <div class="card">
+        <h3>Manual Data Entry</h3>
+        <div class="manual-entry-grid">
+            <button class="btn btn-secondary" onclick="toggleFitnessForm()">Log Fitness</button>
+            <button class="btn btn-secondary" onclick="toggleBodyForm()">Log Body Metrics</button>
+        </div>
+
+        <form id="fitnessForm" class="hidden" style="margin-top: 1rem;" onsubmit="submitFitness(event)">
+            <h4>Log Fitness Data</h4>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Steps</label>
+                    <input type="number" id="manualSteps" placeholder="10000">
+                </div>
+                <div class="form-group">
+                    <label>Exercise (min)</label>
+                    <input type="number" id="manualExercise" placeholder="30">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Calories Burned</label>
+                    <input type="number" id="manualCalBurned" placeholder="500">
+                </div>
+                <div class="form-group">
+                    <label>Sleep (hours)</label>
+                    <input type="number" id="manualSleep" step="0.1" placeholder="7.5">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Resting HR</label>
+                    <input type="number" id="manualHR" placeholder="60">
+                </div>
+                <div class="form-group">
+                    <label>Recovery (0-100)</label>
+                    <input type="number" id="manualRecovery" placeholder="70">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-full">Save Fitness Data</button>
+        </form>
+
+        <form id="bodyForm" class="hidden" style="margin-top: 1rem;" onsubmit="submitBody(event)">
+            <h4>Log Body Metrics</h4>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Weight (kg)</label>
+                    <input type="number" id="manualWeight" step="0.1" placeholder="75.0">
+                </div>
+                <div class="form-group">
+                    <label>Body Fat %</label>
+                    <input type="number" id="manualBF" step="0.1" placeholder="15.0">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Muscle Mass (kg)</label>
+                    <input type="number" id="manualMuscle" step="0.1" placeholder="35.0">
+                </div>
+                <div class="form-group">
+                    <label>Water %</label>
+                    <input type="number" id="manualWater" step="0.1" placeholder="55.0">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-full">Save Body Metrics</button>
+        </form>
+    </div>
+
+    <!-- Sync -->
+    <div class="card">
+        <h3>Sync Data</h3>
+        <div class="sync-buttons">
+            <button class="btn btn-secondary" onclick="syncDevice('whoop')">Sync Whoop</button>
+            <button class="btn btn-secondary" onclick="syncDevice('renpho')">Sync Renpho</button>
+        </div>
+        <p id="syncStatus" class="muted"></p>
+    </div>
+</div>
+
+<script>
+async function loadProfile() {
+    const resp = await fetch('/api/user/profile');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    document.getElementById('profileInfo').innerHTML = `
+        <div class="profile-stats">
+            <p><strong>Age:</strong> ${data.age || '--'} | <strong>Gender:</strong> ${data.gender || '--'}</p>
+            <p><strong>Weight:</strong> ${data.weight_kg || '--'} kg | <strong>Height:</strong> ${data.height_cm || '--'} cm</p>
+            <p><strong>Goal:</strong> ${(data.goal_type || 'maintain').replace('_', ' ')} | <strong>Target:</strong> ${data.target_weight_kg || '--'} kg</p>
+            <p><strong>BMR:</strong> ${data.bmr ? Math.round(data.bmr) : '--'} cal | <strong>TDEE:</strong> ${data.tdee ? Math.round(data.tdee) : '--'} cal</p>
+            <p><strong>Activity:</strong> ${data.activity_level || '--'}</p>
+        </div>
+    `;
+}
+
+function connectWhoop() {
+    const token = prompt('Enter your Whoop access token:');
+    if (!token) return;
+    fetch('/api/connect/whoop', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ access_token: token })
+    }).then(() => {
+        document.getElementById('whoopStatus').textContent = 'Connected';
+        document.getElementById('whoopStatus').classList.add('connected');
+    });
+}
+
+function connectRenpho() {
+    document.getElementById('renphoForm').classList.toggle('hidden');
+}
+
+async function submitRenpho(e) {
+    e.preventDefault();
+    await fetch('/api/connect/renpho', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            email: document.getElementById('renphoEmail').value,
+            password: document.getElementById('renphoPass').value,
+        })
+    });
+    document.getElementById('renphoStatus').textContent = 'Connected';
+    document.getElementById('renphoForm').classList.add('hidden');
+}
+
+function showAppleHealthInfo() {
+    alert('To sync Apple Health data:\n\n' +
+        '1. Create an iOS Shortcut that reads Health data\n' +
+        '2. Configure it to POST JSON to:\n' +
+        '   /api/sync/apple-health\n\n' +
+        'Fields: steps, active_calories, exercise_minutes,\n' +
+        'resting_heart_rate, sleep_hours, weight_kg');
+}
+
+function toggleFitnessForm() {
+    document.getElementById('fitnessForm').classList.toggle('hidden');
+    document.getElementById('bodyForm').classList.add('hidden');
+}
+
+function toggleBodyForm() {
+    document.getElementById('bodyForm').classList.toggle('hidden');
+    document.getElementById('fitnessForm').classList.add('hidden');
+}
+
+async function submitFitness(e) {
+    e.preventDefault();
+    const data = {};
+    const fields = {
+        manualSteps: 'steps', manualExercise: 'exercise_minutes',
+        manualCalBurned: 'total_calories_burned', manualSleep: 'sleep_hours',
+        manualHR: 'resting_heart_rate', manualRecovery: 'recovery_score'
+    };
+    for (const [id, key] of Object.entries(fields)) {
+        const val = document.getElementById(id).value;
+        if (val) data[key] = parseFloat(val);
+    }
+    await fetch('/api/fitness/log', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    });
+    alert('Fitness data saved!');
+    document.getElementById('fitnessForm').classList.add('hidden');
+}
+
+async function submitBody(e) {
+    e.preventDefault();
+    const data = {};
+    const fields = {
+        manualWeight: 'weight_kg', manualBF: 'body_fat_pct',
+        manualMuscle: 'muscle_mass_kg', manualWater: 'water_pct'
+    };
+    for (const [id, key] of Object.entries(fields)) {
+        const val = document.getElementById(id).value;
+        if (val) data[key] = parseFloat(val);
+    }
+    await fetch('/api/body/log', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    });
+    alert('Body metrics saved!');
+    document.getElementById('bodyForm').classList.add('hidden');
+}
+
+async function syncDevice(device) {
+    const status = document.getElementById('syncStatus');
+    status.textContent = `Syncing ${device}...`;
+    try {
+        const resp = await fetch('/api/sync/' + device, { method: 'POST' });
+        const data = await resp.json();
+        status.textContent = resp.ok ? `${device} synced successfully!` : `Error: ${data.error}`;
+    } catch (err) {
+        status.textContent = 'Sync failed: ' + err.message;
+    }
+}
+
+loadProfile();
+</script>
+{% endblock %}

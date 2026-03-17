@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% block title %}Health & Symptoms{% endblock %}
+
+{% block content %}
+<div class="page">
+    <header class="page-header">
+        <h1>Health Tracker</h1>
+    </header>
+
+    <!-- Log Symptom -->
+    <div class="card">
+        <h3>Log a Symptom</h3>
+        <form id="symptomForm">
+            <div class="form-group">
+                <label>What are you experiencing?</label>
+                <select id="symptomType" required>
+                    <option value="">Select symptom...</option>
+                    <option value="headache">Headache</option>
+                    <option value="fatigue">Fatigue / Low Energy</option>
+                    <option value="muscle_cramps">Muscle Cramps</option>
+                    <option value="bloating">Bloating / Digestive Issues</option>
+                    <option value="insomnia">Insomnia / Sleep Issues</option>
+                    <option value="skin_issue">Skin Problem</option>
+                    <option value="nausea">Nausea</option>
+                    <option value="brain_fog">Brain Fog / Poor Focus</option>
+                    <option value="joint_pain">Joint Pain</option>
+                    <option value="anxiety">Anxiety / Stress</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Description</label>
+                <textarea id="symptomDesc" placeholder="Describe what you're feeling..." rows="3"></textarea>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Severity (1-10)</label>
+                    <div class="severity-slider">
+                        <input type="range" id="severity" min="1" max="10" value="5">
+                        <span id="severityLabel">5</span>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Body Area</label>
+                    <select id="bodyArea">
+                        <option value="">N/A</option>
+                        <option value="head">Head</option>
+                        <option value="chest">Chest</option>
+                        <option value="abdomen">Abdomen</option>
+                        <option value="back">Back</option>
+                        <option value="legs">Legs</option>
+                        <option value="arms">Arms</option>
+                        <option value="skin">Skin</option>
+                        <option value="full_body">Full Body</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Upload Image (optional - skin issues, rashes, etc.)</label>
+                <input type="file" id="symptomImage" accept="image/*" capture="environment">
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-full">Log & Analyze</button>
+        </form>
+    </div>
+
+    <!-- Analysis Results -->
+    <div id="analysisCard" class="card hidden">
+        <h3>Analysis</h3>
+        <div id="analysisContent"></div>
+    </div>
+
+    <!-- Symptom History -->
+    <div class="card">
+        <h3>Recent Symptoms</h3>
+        <div id="symptomHistory">
+            <p class="muted">Loading...</p>
+        </div>
+    </div>
+</div>
+
+<script>
+// Severity slider
+document.getElementById('severity').addEventListener('input', (e) => {
+    document.getElementById('severityLabel').textContent = e.target.value;
+});
+
+// Submit symptom
+document.getElementById('symptomForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const image = document.getElementById('symptomImage').files[0];
+    let body, headers = {};
+
+    if (image) {
+        body = new FormData();
+        body.append('symptom_type', document.getElementById('symptomType').value);
+        body.append('description', document.getElementById('symptomDesc').value);
+        body.append('severity', document.getElementById('severity').value);
+        body.append('body_area', document.getElementById('bodyArea').value);
+        body.append('image', image);
+    } else {
+        headers['Content-Type'] = 'application/json';
+        body = JSON.stringify({
+            symptom_type: document.getElementById('symptomType').value,
+            description: document.getElementById('symptomDesc').value,
+            severity: parseInt(document.getElementById('severity').value),
+            body_area: document.getElementById('bodyArea').value,
+        });
+    }
+
+    const resp = await fetch('/api/symptoms/log', { method: 'POST', headers, body });
+    const result = await resp.json();
+
+    // Show analysis
+    const card = document.getElementById('analysisCard');
+    const content = document.getElementById('analysisContent');
+    card.classList.remove('hidden');
+
+    const analysis = result.analysis || {};
+    let html = `
+        <div class="analysis-severity ${analysis.severity_level || 'moderate'}">
+            Severity: ${analysis.severity_level || 'moderate'}
+        </div>
+        <p class="analysis-text">${analysis.analysis || 'No analysis available'}</p>
+    `;
+
+    // Correlations
+    const correlations = analysis.correlations || [];
+    if (correlations.length > 0) {
+        html += '<h4>Possible Causes</h4><div class="correlation-list">';
+        correlations.forEach(c => {
+            html += `
+                <div class="correlation-item ${c.confidence || 'medium'}">
+                    <span class="confidence-badge">${c.confidence}</span>
+                    <p>${c.message}</p>
+                </div>
+            `;
+        });
+        html += '</div>';
+    }
+
+    // Recommendations
+    const recs = analysis.recommendations || [];
+    if (recs.length > 0) {
+        html += '<h4>What To Do</h4><ul class="rec-list">';
+        recs.forEach(r => { html += `<li>${r}</li>`; });
+        html += '</ul>';
+    }
+
+    content.innerHTML = html;
+    card.scrollIntoView({ behavior: 'smooth' });
+
+    // Reload history
+    loadHistory();
+});
+
+async function loadHistory() {
+    const resp = await fetch('/api/symptoms/history');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const container = document.getElementById('symptomHistory');
+    const entries = data.entries || [];
+
+    if (entries.length === 0) {
+        container.innerHTML = '<p class="muted">No symptoms logged yet.</p>';
+        return;
+    }
+
+    container.innerHTML = entries.map(e => `
+        <div class="symptom-entry ${e.resolved ? 'resolved' : ''}">
+            <div class="symptom-header">
+                <strong>${e.symptom_type.replace('_', ' ')}</strong>
+                <span class="severity-badge s${e.severity}">${e.severity}/10</span>
+            </div>
+            <p class="symptom-date">${e.date}</p>
+            ${e.description ? '<p>' + e.description + '</p>' : ''}
+            ${!e.resolved ? '<button class="btn btn-sm" onclick="resolveSymptom(' + e.id + ')">Mark Resolved</button>' : '<span class="resolved-badge">Resolved</span>'}
+        </div>
+    `).join('');
+}
+
+async function resolveSymptom(id) {
+    await fetch('/api/symptoms/' + id + '/resolve', { method: 'POST' });
+    loadHistory();
+}
+
+loadHistory();
+</script>
+{% endblock %}

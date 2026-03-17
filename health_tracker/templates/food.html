@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+{% block title %}Food Tracker{% endblock %}
+
+{% block content %}
+<div class="page">
+    <header class="page-header">
+        <h1>Food & Drink</h1>
+        <span class="date-display" id="todayDate"></span>
+    </header>
+
+    <!-- Quick Add -->
+    <div class="card">
+        <h3>Log Food or Drink</h3>
+        <div class="search-box">
+            <input type="text" id="foodSearch" placeholder="Search foods (e.g. chicken breast, gin and soda)..."
+                   autocomplete="off">
+            <div id="searchResults" class="search-results hidden"></div>
+        </div>
+
+        <form id="foodForm" class="hidden">
+            <input type="hidden" id="foodName">
+            <div class="selected-food" id="selectedFood"></div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Meal Type</label>
+                    <select id="mealType">
+                        <option value="breakfast">Breakfast</option>
+                        <option value="lunch">Lunch</option>
+                        <option value="dinner">Dinner</option>
+                        <option value="snack">Snack</option>
+                        <option value="drink">Drink</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Servings</label>
+                    <input type="number" id="servings" value="1" min="0.25" step="0.25">
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-full">Log Entry</button>
+        </form>
+    </div>
+
+    <!-- Custom Entry -->
+    <div class="card">
+        <h3>Custom Entry</h3>
+        <button class="btn btn-secondary btn-full" onclick="toggleCustomForm()">
+            Add Custom Food / Drink
+        </button>
+        <form id="customForm" class="hidden" style="margin-top: 1rem;">
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" id="customName" placeholder="e.g. Homemade smoothie" required>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Meal Type</label>
+                    <select id="customMealType">
+                        <option value="breakfast">Breakfast</option>
+                        <option value="lunch">Lunch</option>
+                        <option value="dinner">Dinner</option>
+                        <option value="snack">Snack</option>
+                        <option value="drink">Drink</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Calories</label>
+                    <input type="number" id="customCal" placeholder="0">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Protein (g)</label>
+                    <input type="number" id="customProtein" step="0.1" placeholder="0">
+                </div>
+                <div class="form-group">
+                    <label>Carbs (g)</label>
+                    <input type="number" id="customCarbs" step="0.1" placeholder="0">
+                </div>
+                <div class="form-group">
+                    <label>Fat (g)</label>
+                    <input type="number" id="customFat" step="0.1" placeholder="0">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-full">Log Custom Entry</button>
+        </form>
+    </div>
+
+    <!-- Image Upload -->
+    <div class="card">
+        <h3>Upload Food Image</h3>
+        <div class="upload-zone" id="uploadZone">
+            <input type="file" id="foodImage" accept="image/*" capture="environment" class="hidden">
+            <p>Tap to take a photo or upload an image of your meal</p>
+            <button class="btn btn-secondary" onclick="document.getElementById('foodImage').click()">
+                Choose Image
+            </button>
+        </div>
+        <div id="imagePreview" class="hidden">
+            <img id="previewImg" alt="Food preview">
+            <p id="imageAnalysis"></p>
+        </div>
+    </div>
+
+    <!-- Today's Log -->
+    <div class="card">
+        <h3>Today's Log</h3>
+        <div id="dailyLog">
+            <p class="muted">Loading...</p>
+        </div>
+        <div id="dailyTotals" class="daily-totals hidden"></div>
+    </div>
+</div>
+
+<script>
+document.getElementById('todayDate').textContent = new Date().toLocaleDateString('en-US', {
+    weekday: 'long', month: 'short', day: 'numeric'
+});
+
+// Search
+let searchTimeout;
+const searchInput = document.getElementById('foodSearch');
+const searchResults = document.getElementById('searchResults');
+
+searchInput.addEventListener('input', () => {
+    clearTimeout(searchTimeout);
+    const q = searchInput.value.trim();
+    if (q.length < 2) { searchResults.classList.add('hidden'); return; }
+
+    searchTimeout = setTimeout(async () => {
+        const resp = await fetch('/api/food/search?q=' + encodeURIComponent(q));
+        const results = await resp.json();
+        if (results.length === 0) {
+            searchResults.innerHTML = '<div class="search-item">No results found. Try custom entry.</div>';
+        } else {
+            searchResults.innerHTML = results.map(r => `
+                <div class="search-item" onclick='selectFood(${JSON.stringify(r)})'>
+                    <strong>${r.name}</strong>
+                    <span>${r.calories} cal | P:${r.protein_g}g C:${r.carbs_g}g F:${r.fat_g}g</span>
+                </div>
+            `).join('');
+        }
+        searchResults.classList.remove('hidden');
+    }, 300);
+});
+
+function selectFood(food) {
+    document.getElementById('foodName').value = food.name;
+    document.getElementById('selectedFood').innerHTML = `
+        <strong>${food.name}</strong> (${food.serving_size})<br>
+        ${food.calories} cal | P:${food.protein_g}g C:${food.carbs_g}g F:${food.fat_g}g
+        ${food.is_alcoholic ? '<br><em>' + food.alcohol_units + ' alcohol units</em>' : ''}
+    `;
+    document.getElementById('foodForm').classList.remove('hidden');
+    searchResults.classList.add('hidden');
+    searchInput.value = '';
+
+    // Auto-select drink meal type for alcoholic items
+    if (food.is_alcoholic) {
+        document.getElementById('mealType').value = 'drink';
+    }
+}
+
+document.getElementById('foodForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const data = {
+        name: document.getElementById('foodName').value,
+        meal_type: document.getElementById('mealType').value,
+        servings: parseFloat(document.getElementById('servings').value),
+    };
+    await fetch('/api/food/log', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    });
+    document.getElementById('foodForm').classList.add('hidden');
+    loadDailyLog();
+});
+
+// Custom form
+function toggleCustomForm() {
+    document.getElementById('customForm').classList.toggle('hidden');
+}
+
+document.getElementById('customForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const data = {
+        name: document.getElementById('customName').value,
+        meal_type: document.getElementById('customMealType').value,
+        custom_nutrients: {
+            calories: parseFloat(document.getElementById('customCal').value) || 0,
+            protein_g: parseFloat(document.getElementById('customProtein').value) || 0,
+            carbs_g: parseFloat(document.getElementById('customCarbs').value) || 0,
+            fat_g: parseFloat(document.getElementById('customFat').value) || 0,
+        }
+    };
+    await fetch('/api/food/log', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    });
+    document.getElementById('customForm').classList.add('hidden');
+    document.getElementById('customForm').reset();
+    loadDailyLog();
+});
+
+// Image upload
+document.getElementById('foodImage').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const preview = document.getElementById('imagePreview');
+    const img = document.getElementById('previewImg');
+    img.src = URL.createObjectURL(file);
+    preview.classList.remove('hidden');
+
+    const formData = new FormData();
+    formData.append('image', file);
+    const resp = await fetch('/api/food/upload-image', { method: 'POST', body: formData });
+    const result = await resp.json();
+    document.getElementById('imageAnalysis').textContent = result.message || 'Image uploaded';
+});
+
+// Daily log
+async function loadDailyLog() {
+    const resp = await fetch('/api/food/daily');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const log = document.getElementById('dailyLog');
+    const entries = data.entries || [];
+
+    if (entries.length === 0) {
+        log.innerHTML = '<p class="muted">No entries yet today. Start logging!</p>';
+        return;
+    }
+
+    log.innerHTML = entries.map(e => `
+        <div class="log-entry">
+            <div class="log-info">
+                <strong>${e.name}</strong>
+                <span class="meal-badge ${e.meal_type}">${e.meal_type}</span>
+            </div>
+            <div class="log-macros">
+                <span>${e.calories} cal</span>
+                <span>P:${e.protein_g}g</span>
+                <span>C:${e.carbs_g}g</span>
+                <span>F:${e.fat_g}g</span>
+            </div>
+            <button class="btn-delete" onclick="deleteFood(${e.id})">x</button>
+        </div>
+    `).join('');
+
+    const totals = data.totals || {};
+    const totalsDiv = document.getElementById('dailyTotals');
+    totalsDiv.classList.remove('hidden');
+    totalsDiv.innerHTML = `
+        <div class="totals-row">
+            <span>Total: <strong>${Math.round(totals.calories || 0)} cal</strong></span>
+            <span>P: ${Math.round(totals.protein_g || 0)}g</span>
+            <span>C: ${Math.round(totals.carbs_g || 0)}g</span>
+            <span>F: ${Math.round(totals.fat_g || 0)}g</span>
+            <span>Water: ${Math.round(totals.water_ml || 0)}ml</span>
+        </div>
+    `;
+}
+
+async function deleteFood(id) {
+    await fetch('/api/food/' + id, { method: 'DELETE' });
+    loadDailyLog();
+}
+
+loadDailyLog();
+</script>
+{% endblock %}

@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Health Tracker - Welcome{% endblock %}
+
+{% block content %}
+<div class="onboarding">
+    <div class="onboarding-header">
+        <h1>Health Tracker</h1>
+        <p>Your personal health companion</p>
+    </div>
+
+    <div class="feature-list">
+        <div class="feature-item">
+            <div class="feature-icon">&#x1F4CA;</div>
+            <div>
+                <h3>Track Everything</h3>
+                <p>Connect Whoop, Apple Health, and Renpho for complete data</p>
+            </div>
+        </div>
+        <div class="feature-item">
+            <div class="feature-icon">&#x1F34E;</div>
+            <div>
+                <h3>Nutrition Analysis</h3>
+                <p>Log meals, track macros, and identify nutrient gaps</p>
+            </div>
+        </div>
+        <div class="feature-item">
+            <div class="feature-icon">&#x1F3AF;</div>
+            <div>
+                <h3>Smart Goals</h3>
+                <p>Get personalized recommendations and lifestyle budgets</p>
+            </div>
+        </div>
+        <div class="feature-item">
+            <div class="feature-icon">&#x1FA7A;</div>
+            <div>
+                <h3>Health Insights</h3>
+                <p>Track symptoms and get correlation analysis</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="setup-form" class="card">
+        <h2>Set Up Your Profile</h2>
+        <form id="profileForm">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Age</label>
+                    <input type="number" name="age" placeholder="30" required>
+                </div>
+                <div class="form-group">
+                    <label>Gender</label>
+                    <select name="gender" required>
+                        <option value="male">Male</option>
+                        <option value="female">Female</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Weight (kg)</label>
+                    <input type="number" name="weight_kg" step="0.1" placeholder="75" required>
+                </div>
+                <div class="form-group">
+                    <label>Height (cm)</label>
+                    <input type="number" name="height_cm" step="0.1" placeholder="175" required>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Activity Level</label>
+                <select name="activity_level">
+                    <option value="sedentary">Sedentary (desk job)</option>
+                    <option value="light">Light (1-2 days/week)</option>
+                    <option value="moderate" selected>Moderate (3-5 days/week)</option>
+                    <option value="active">Active (6-7 days/week)</option>
+                    <option value="very_active">Very Active (2x/day)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Goal</label>
+                <select name="goal_type">
+                    <option value="lose_weight">Lose Weight</option>
+                    <option value="gain_muscle">Build Muscle</option>
+                    <option value="maintain" selected>Maintain Weight</option>
+                    <option value="improve_endurance">Improve Endurance</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Target Weight (kg)</label>
+                <input type="number" name="target_weight_kg" step="0.1" placeholder="70">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Weekly Alcohol Units</label>
+                    <input type="number" name="weekly_alcohol_units" value="4" step="0.5">
+                </div>
+                <div class="form-group">
+                    <label>Weekly Cheat Meals</label>
+                    <input type="number" name="weekly_cheat_meals" value="1">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-full">Get Started</button>
+        </form>
+    </div>
+</div>
+
+<script>
+document.getElementById('profileForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = new FormData(e.target);
+    const data = Object.fromEntries(form.entries());
+    // Convert numeric fields
+    ['age', 'weight_kg', 'height_cm', 'target_weight_kg', 'weekly_alcohol_units', 'weekly_cheat_meals'].forEach(k => {
+        if (data[k]) data[k] = parseFloat(data[k]);
+    });
+    try {
+        const resp = await fetch('/api/user/setup', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        if (resp.ok) {
+            window.location.href = '/dashboard';
+        }
+    } catch (err) {
+        alert('Error setting up profile: ' + err.message);
+    }
+});
+</script>
+{% endblock %}

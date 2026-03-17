@@ -1,0 +1,298 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Health Tracker{% endblock %}
+
+{% block content %}
+<div class="page">
+    <header class="page-header">
+        <h1>Dashboard</h1>
+        <span class="date-display" id="todayDate"></span>
+    </header>
+
+    <!-- Daily Score -->
+    <div class="card score-card" id="scoreCard">
+        <div class="score-ring">
+            <svg viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="45" fill="none" stroke="#2d2d2d" stroke-width="8"/>
+                <circle cx="50" cy="50" r="45" fill="none" stroke="#4ade80" stroke-width="8"
+                    stroke-dasharray="283" stroke-dashoffset="283" stroke-linecap="round"
+                    transform="rotate(-90 50 50)" id="scoreRing"/>
+            </svg>
+            <div class="score-value" id="scoreValue">--</div>
+        </div>
+        <div class="score-label">Daily Health Score</div>
+    </div>
+
+    <!-- Calorie Summary -->
+    <div class="card" id="calorieCard">
+        <h3>Calories</h3>
+        <div class="calorie-bar">
+            <div class="calorie-info">
+                <span><strong id="calConsumed">0</strong> eaten</span>
+                <span><strong id="calBurned">0</strong> burned</span>
+                <span><strong id="calRemaining">0</strong> remaining</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="calProgress" style="width: 0%"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Macros -->
+    <div class="card" id="macroCard">
+        <h3>Macros</h3>
+        <div class="macro-grid">
+            <div class="macro-item">
+                <div class="macro-ring protein">
+                    <span id="proteinVal">0g</span>
+                </div>
+                <span class="macro-label">Protein</span>
+            </div>
+            <div class="macro-item">
+                <div class="macro-ring carbs">
+                    <span id="carbsVal">0g</span>
+                </div>
+                <span class="macro-label">Carbs</span>
+            </div>
+            <div class="macro-item">
+                <div class="macro-ring fat">
+                    <span id="fatVal">0g</span>
+                </div>
+                <span class="macro-label">Fat</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Nutrient Alerts -->
+    <div class="card" id="nutrientAlerts">
+        <h3>Nutrient Status</h3>
+        <div id="deficiencyList" class="alert-list">
+            <p class="muted">Loading...</p>
+        </div>
+    </div>
+
+    <!-- Weekly Allowances -->
+    <div class="card" id="allowanceCard">
+        <h3>This Week's Budget</h3>
+        <div id="allowanceContent">
+            <p class="muted">Loading...</p>
+        </div>
+    </div>
+
+    <!-- What You Can Do -->
+    <div class="card" id="optionsCard">
+        <h3>What You Can Do</h3>
+        <div id="optionsList">
+            <p class="muted">Loading...</p>
+        </div>
+    </div>
+
+    <!-- Activity -->
+    <div class="card" id="activityCard">
+        <h3>Activity</h3>
+        <div class="stat-grid">
+            <div class="stat-item">
+                <span class="stat-value" id="stepsVal">--</span>
+                <span class="stat-label">Steps</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-value" id="exerciseVal">--</span>
+                <span class="stat-label">Exercise (min)</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-value" id="recoveryVal">--</span>
+                <span class="stat-label">Recovery</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-value" id="sleepVal">--</span>
+                <span class="stat-label">Sleep (hrs)</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recommendations -->
+    <div class="card" id="recsCard">
+        <h3>Recommendations</h3>
+        <div id="recsList">
+            <p class="muted">Loading...</p>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('todayDate').textContent = new Date().toLocaleDateString('en-US', {
+    weekday: 'long', month: 'short', day: 'numeric'
+});
+
+async function loadDashboard() {
+    try {
+        const [fitnessResp, nutrientResp, allowanceResp] = await Promise.all([
+            fetch('/api/fitness/daily'),
+            fetch('/api/nutrients/daily'),
+            fetch('/api/allowances'),
+        ]);
+
+        if (fitnessResp.ok) {
+            const fitness = await fitnessResp.json();
+            renderFitness(fitness);
+        }
+        if (nutrientResp.ok) {
+            const nutrients = await nutrientResp.json();
+            renderNutrients(nutrients);
+        }
+        if (allowanceResp.ok) {
+            const allowances = await allowanceResp.json();
+            renderAllowances(allowances);
+        }
+    } catch (err) {
+        console.error('Dashboard load error:', err);
+    }
+}
+
+function renderFitness(data) {
+    // Score
+    const score = data.overall_score || 0;
+    document.getElementById('scoreValue').textContent = score;
+    const ring = document.getElementById('scoreRing');
+    ring.style.strokeDashoffset = 283 - (283 * score / 100);
+    ring.style.stroke = score >= 70 ? '#4ade80' : score >= 40 ? '#fbbf24' : '#f87171';
+
+    // Calories
+    const cal = data.calories || {};
+    document.getElementById('calConsumed').textContent = cal.consumed || 0;
+    document.getElementById('calBurned').textContent = cal.burned || 0;
+    const remaining = Math.max(0, (cal.target || 2000) - (cal.consumed || 0));
+    document.getElementById('calRemaining').textContent = remaining;
+    const pct = Math.min(100, ((cal.consumed || 0) / (cal.target || 2000)) * 100);
+    const bar = document.getElementById('calProgress');
+    bar.style.width = pct + '%';
+    bar.className = 'progress-fill' + (pct > 100 ? ' over' : '');
+
+    // Macros
+    const macros = data.macros || {};
+    if (macros.protein_g) document.getElementById('proteinVal').textContent = macros.protein_g.current + 'g';
+    if (macros.carbs_g) document.getElementById('carbsVal').textContent = macros.carbs_g.current + 'g';
+    if (macros.fat_g) document.getElementById('fatVal').textContent = macros.fat_g.current + 'g';
+
+    // Activity
+    const activity = data.activity || {};
+    if (activity.steps) document.getElementById('stepsVal').textContent = (activity.steps.current || 0).toLocaleString();
+    if (activity.exercise_minutes) document.getElementById('exerciseVal').textContent = activity.exercise_minutes.current || 0;
+
+    const recovery = data.recovery || {};
+    document.getElementById('recoveryVal').textContent = recovery.recovery_score ? recovery.recovery_score + '%' : '--';
+    document.getElementById('sleepVal').textContent = recovery.sleep_hours ? recovery.sleep_hours.toFixed(1) : '--';
+
+    // Recommendations
+    const recs = data.recommendations || [];
+    const recsList = document.getElementById('recsList');
+    if (recs.length === 0) {
+        recsList.innerHTML = '<p class="muted">Looking good! No urgent recommendations.</p>';
+    } else {
+        recsList.innerHTML = recs.map(r => `
+            <div class="rec-item ${r.priority}">
+                <span class="rec-badge">${r.priority}</span>
+                <p>${r.message}</p>
+            </div>
+        `).join('');
+    }
+}
+
+function renderNutrients(data) {
+    const list = document.getElementById('deficiencyList');
+    const deficiencies = data.deficiencies || [];
+    const excesses = data.excesses || [];
+
+    if (deficiencies.length === 0 && excesses.length === 0) {
+        list.innerHTML = '<p class="status-good">All nutrients on track!</p>';
+        return;
+    }
+
+    let html = '';
+    deficiencies.forEach(d => {
+        html += `
+        <div class="alert-item deficient">
+            <div class="alert-header">
+                <strong>${d.name}</strong>
+                <span class="alert-pct">${d.percentage}%</span>
+            </div>
+            <div class="progress-bar sm">
+                <div class="progress-fill warning" style="width: ${d.percentage}%"></div>
+            </div>
+            ${d.food_sources ? '<p class="food-hint">Try: ' + d.food_sources.slice(0,3).join(', ') + '</p>' : ''}
+        </div>`;
+    });
+    excesses.forEach(e => {
+        html += `
+        <div class="alert-item excess">
+            <div class="alert-header">
+                <strong>${e.name}</strong>
+                <span class="alert-pct">${e.percentage}%</span>
+            </div>
+            <p class="excess-msg">${e.message}</p>
+        </div>`;
+    });
+
+    list.innerHTML = html;
+}
+
+function renderAllowances(data) {
+    const content = document.getElementById('allowanceContent');
+    const alcohol = data.alcohol || {};
+    const cheats = data.cheat_meals || {};
+    const rest = data.rest_days || {};
+
+    content.innerHTML = `
+        <div class="allowance-grid">
+            <div class="allowance-item">
+                <span class="allowance-val">${alcohol.remaining || 0}</span>
+                <span class="allowance-label">Drink units left</span>
+            </div>
+            <div class="allowance-item">
+                <span class="allowance-val">${cheats.remaining || 0}</span>
+                <span class="allowance-label">Cheat meals left</span>
+            </div>
+            <div class="allowance-item">
+                <span class="allowance-val">${rest.remaining || 0}</span>
+                <span class="allowance-label">Rest days left</span>
+            </div>
+        </div>
+        ${data.adjustment_reason ? '<p class="bonus-note">' + data.adjustment_reason + '</p>' : ''}
+    `;
+
+    // Options
+    const optionsList = document.getElementById('optionsList');
+    const options = data.options || [];
+    if (options.length === 0) {
+        optionsList.innerHTML = '<p class="muted">Stay on track this week!</p>';
+        return;
+    }
+
+    optionsList.innerHTML = options.map(opt => {
+        let detail = '';
+        if (opt.type === 'alcohol' && opt.example) {
+            detail = `<p class="option-example">${opt.example}</p>`;
+            if (opt.tips) {
+                detail += '<ul class="tips">' + opt.tips.map(t => `<li>${t}</li>`).join('') + '</ul>';
+            }
+        } else if (opt.type === 'dining_out') {
+            detail = `<p>${opt.budget}</p>`;
+        } else if (opt.type === 'treat' && opt.suggestions) {
+            detail = '<div class="treat-grid">' + opt.suggestions.slice(0,4).map(s =>
+                `<span class="treat-chip">${s.name} (${s.calories}cal)</span>`
+            ).join('') + '</div>';
+        } else if (opt.type === 'restriction') {
+            detail = `<p class="restriction-msg">${opt.recommendation}</p>`;
+        }
+        return `
+            <div class="option-card ${opt.type}">
+                <h4>${opt.title}</h4>
+                <p>${opt.description}</p>
+                ${detail}
+            </div>
+        `;
+    }).join('');
+}
+
+loadDashboard();
+</script>
+{% endblock %}
