@@ -4,23 +4,31 @@ Enter a place name and get a Google Maps link, full address, a short
 description, and distance + time from your location by car, transit,
 and walking.
 
-Data sources (all free, no API keys required):
-  * Nominatim (OpenStreetMap) - geocoding + full address
-  * Wikipedia REST API        - description of the place
-  * OSRM public demo          - driving & walking distance/time
-  * ipapi.co                  - detect user location from public IP
-  * Google Maps URL scheme    - deep links for each travel mode
+Data sources:
+  * Nominatim (OpenStreetMap)         - geocoding + full address   [free]
+  * Wikipedia REST API                - description of the place   [free]
+  * Google Maps Distance Matrix API   - car/transit/walking times  [needs API key]
+  * OSRM public demo                  - car/walking fallback       [free]
+  * ipapi.co                          - detect user location       [free]
+  * Google Maps URL scheme            - deep links per travel mode [free]
+
+Supply a Google Maps API key via --api-key or the GOOGLE_MAPS_API_KEY
+environment variable to get real transit times and consistent, accurate
+results for all three modes. Without a key the app falls back to OSRM
+for driving + walking and shows a Google Maps link (no time) for transit.
 
 Usage:
     python place_lookup.py "Eiffel Tower"
     python place_lookup.py "Shibuya Crossing" --from "Tokyo Station"
     python place_lookup.py "Colosseum" --from "41.9028,12.4964"
+    GOOGLE_MAPS_API_KEY=AIza... python place_lookup.py "Grand Central"
 """
 
 from __future__ import annotations
 
 import argparse
 import math
+import os
 import sys
 from urllib.parse import quote_plus, urlencode
 
@@ -30,6 +38,7 @@ NOMINATIM_URL = "https://nominatim.openstreetmap.org"
 OSRM_URL = "https://router.project-osrm.org"
 IP_LOOKUP_URL = "https://ipapi.co/json/"
 WIKIPEDIA_SUMMARY_URL = "https://en.wikipedia.org/api/rest_v1/page/summary/"
+GOOGLE_DISTANCE_MATRIX_URL = "https://maps.googleapis.com/maps/api/distancematrix/json"
 
 USER_AGENT = "place-lookup-maps-app/1.0 (+https://github.com/catmixer/complete-python-3-bootcamp)"
 HEADERS = {"User-Agent": USER_AGENT, "Accept-Language": "en"}
@@ -95,6 +104,44 @@ def wikipedia_summary(title: str) -> str | None:
             return None
         return data.get("extract")
     except (requests.RequestException, ValueError):
+        return None
+
+
+def google_distance_matrix(
+    origin: tuple[float, float],
+    destination: tuple[float, float],
+    mode: str,
+    api_key: str,
+) -> dict | None:
+    """Query Google Maps Distance Matrix for distance/duration.
+
+    mode is one of 'driving', 'transit', 'walking', 'bicycling'.
+    Returns {'distance_m', 'duration_s', 'source': 'google'} or None on
+    any non-OK result (including ZERO_RESULTS — e.g. no transit in area).
+    """
+    params = {
+        "origins": f"{origin[0]},{origin[1]}",
+        "destinations": f"{destination[0]},{destination[1]}",
+        "mode": mode,
+        "units": "metric",
+        "key": api_key,
+    }
+    try:
+        r = requests.get(GOOGLE_DISTANCE_MATRIX_URL, params=params, timeout=15)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        if data.get("status") != "OK" or not data.get("rows"):
+            return None
+        element = data["rows"][0]["elements"][0]
+        if element.get("status") != "OK":
+            return None
+        return {
+            "distance_m": float(element["distance"]["value"]),
+            "duration_s": float(element["duration"]["value"]),
+            "source": "google",
+        }
+    except (requests.RequestException, ValueError, KeyError, IndexError):
         return None
 
 
@@ -236,25 +283,46 @@ def resolve_origin(origin_arg: str | None) -> tuple[float, float, str]:
     return float(place["lat"]), float(place["lon"]), place["display_name"]
 
 
-def travel_info(origin, destination, straight_km: float) -> dict[str, dict]:
-    """Return {'driving': {...}, 'walking': {...}} with distance/time."""
-    results: dict[str, dict] = {}
+def travel_info(
+    origin,
+    destination,
+    straight_km: float,
+    api_key: str | None = None,
+) -> dict[str, dict | None]:
+    """Return {'driving', 'transit', 'walking'} each mapped to a result dict.
 
-    driving = osrm_route(origin, destination, "driving")
+    Result dict has 'distance_m', 'duration_s', optional 'source' and
+    'estimated'. Transit may be None if we can't compute it (no API key
+    or no transit available) — callers should fall back to a deep link.
+    """
+    results: dict[str, dict | None] = {}
+
+    driving = None
+    walking = None
+    transit = None
+
+    if api_key:
+        driving = google_distance_matrix(origin, destination, "driving", api_key)
+        transit = google_distance_matrix(origin, destination, "transit", api_key)
+        walking = google_distance_matrix(origin, destination, "walking", api_key)
+
+    if driving is None:
+        driving = osrm_route(origin, destination, "driving")
     if driving is None:
         driving = estimate(straight_km, DRIVING_SPEED_KMH)
-    results["driving"] = driving
 
-    # OSRM public demo sometimes only serves driving; try walking/foot, fall back to estimate.
-    walking = osrm_route(origin, destination, "walking") or osrm_route(origin, destination, "foot")
+    if walking is None:
+        walking = osrm_route(origin, destination, "walking") or osrm_route(origin, destination, "foot")
     if walking is None:
         walking = estimate(straight_km, WALKING_SPEED_KMH)
-    results["walking"] = walking
 
+    results["driving"] = driving
+    results["transit"] = transit  # may be None → caller shows link only
+    results["walking"] = walking
     return results
 
 
-def run(destination_query: str, origin_arg: str | None) -> int:
+def run(destination_query: str, origin_arg: str | None, api_key: str | None = None) -> int:
     print(f"Looking up: {destination_query}\n")
     place = geocode(destination_query)
     if place is None:
@@ -274,7 +342,7 @@ def run(destination_query: str, origin_arg: str | None) -> int:
     origin = (origin_lat, origin_lon)
 
     straight_km = haversine_km(origin, dest)
-    travel = travel_info(origin, dest, straight_km)
+    travel = travel_info(origin, dest, straight_km, api_key=api_key)
 
     bar = "=" * 72
     print(bar)
@@ -296,21 +364,29 @@ def run(destination_query: str, origin_arg: str | None) -> int:
     print(f"  {'Mode':<14}{'Distance':>10}   {'Time':>12}")
 
     for label, key, gmaps_mode in [
-        ("By car",      "driving", "driving"),
-        ("By transit",  None,      "transit"),
-        ("Walking",     "walking", "walking"),
+        ("By car",     "driving", "driving"),
+        ("By transit", "transit", "transit"),
+        ("Walking",    "walking", "walking"),
     ]:
-        if key is None:
+        r = travel.get(key)
+        if r is None:
             dist_s = "—"
             time_s = "see link"
             note = ""
         else:
-            r = travel[key]
             dist_s = format_distance(r["distance_m"])
             time_s = format_duration(r["duration_s"])
-            note = "  (est.)" if r.get("estimated") else ""
+            if r.get("estimated"):
+                note = "  (est.)"
+            elif r.get("source") == "google":
+                note = "  (google)"
+            else:
+                note = ""
         print(f"  {label:<14}{dist_s:>10}   {time_s:>12}{note}")
         print(f"    {google_maps_directions_link(origin, dest, gmaps_mode)}")
+    if api_key is None:
+        print()
+        print("  Tip: set GOOGLE_MAPS_API_KEY (or pass --api-key) for real transit times.")
     print(bar)
     return 0
 
@@ -342,14 +418,22 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Your starting location (address or 'lat,lon'). Auto-detected from IP if omitted.",
     )
+    parser.add_argument(
+        "--api-key",
+        dest="api_key",
+        default=None,
+        help="Google Maps API key. Falls back to $GOOGLE_MAPS_API_KEY if unset.",
+    )
     args = parser.parse_args(argv)
 
     query = " ".join(args.destination).strip()
     if not query:
         parser.error("destination is required")
 
+    api_key = args.api_key or os.environ.get("GOOGLE_MAPS_API_KEY") or None
+
     try:
-        return run(query, args.origin)
+        return run(query, args.origin, api_key=api_key)
     except requests.RequestException as exc:
         print(f"Network error: {exc}", file=sys.stderr)
         return 2
